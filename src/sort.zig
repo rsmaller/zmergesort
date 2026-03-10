@@ -45,17 +45,32 @@ fn SortStack(comptime T: type) type {
     };
 }
 
-pub fn create_sort_stack(allocator: anytype, comptime T: type) !SortStack(T) {
+fn create_sort_stack(allocator: anytype, comptime T: type) !SortStack(T) {
     var stack = SortStack(T){};
     stack.allocation = try allocator.alloc(T, stack.capacity);
     return stack;
 }
 
-pub fn merge_sort(allocator: anytype, buf: anytype) !void {
-    var stack = try create_sort_stack(allocator, MergeSortFrame);
-    defer stack.deinit(allocator);
+fn create_sort_stack_initsize(allocator: anytype, comptime T: type, size: usize) !SortStack(T) {
+    var stack = SortStack(T){.capacity = size};
+    stack.allocation = try allocator.alloc(T, stack.capacity);
+    return stack;
+}
+
+pub fn shuffle(buf: anytype) void {
+    for (0..buf.len) |i| {
+        const swapIndex = std.crypto.random.intRangeAtMost(usize, 0, buf.len-1);
+        const temp = buf[i];
+        buf[i] = buf[swapIndex];
+        buf[swapIndex] = temp;
+    }
+}
+
+pub fn merge_sort_stack(allocator: anytype, buf: anytype) !void {
     const tempbuf = try allocator.alloc(@TypeOf(buf[0]), buf.len);
     defer allocator.free(tempbuf);
+    var stack = try create_sort_stack_initsize(allocator, MergeSortFrame, @as(usize, @intFromFloat(@ceil(@log2(@as(f64, @floatFromInt(buf.len)))))) * 2);
+    defer stack.deinit(allocator);
     try stack.push(allocator, .{.left = 0, .right = buf.len-1, .state = .NO_RECURSE});
     while (stack.current_index > 0) {
         var current_frame = &stack.allocation[stack.current_index - 1];
@@ -83,32 +98,121 @@ pub fn merge_sort(allocator: anytype, buf: anytype) !void {
     }
 }
 
-fn merge(buf: anytype, tempbuf: anytype, min: usize, mid: usize, max: usize) !void {
-    var left = tempbuf[min..mid+1];
-    var right = tempbuf[mid+1..max+1];
-    @memcpy(left[0..], buf[min..mid+1]);
-    @memcpy(right[0..], buf[mid+1..max+1]);
-    var i: usize = 0;
-    var j: usize = 0;
-    var buf_index: usize = min;
-    while (i < left.len and j < right.len) : (buf_index += 1) {
-        if (left[i] <= right[j]) {
-            buf[buf_index] = left[i];
-            i += 1;
-        } else {
-            buf[buf_index] = right[j];
-            j += 1;
+pub fn merge_sort_recursive(allocator: anytype, buf: anytype) !void {
+    const tempbuf = try allocator.alloc(@TypeOf(buf[0]), buf.len);
+    defer allocator.free(tempbuf);
+    try merge_sort_recursive_internal(buf, tempbuf, 0, buf.len-1); // Recurse in another function to permit pre-allocation.
+}
+
+fn merge_sort_recursive_internal(buf: anytype, tempbuf: anytype, min: usize, max: usize) !void {
+    if (min >= max) return;
+    const mid = (min + max) / 2;
+    try merge_sort_recursive_internal(buf, tempbuf, min, mid);
+    try merge_sort_recursive_internal(buf, tempbuf, mid+1, max);
+    try merge(buf, tempbuf, min, mid, max);
+}
+
+pub fn merge_sort_loop(allocator: anytype, buf: anytype) !void {
+    const tempbuf = try allocator.alloc(@TypeOf(buf[0]), buf.len);
+    defer allocator.free(tempbuf);
+    var length: usize = 1;
+    const n_inclusive = tempbuf.len;
+    const n_non_inclusive = n_inclusive - 1;
+    while (length < n_inclusive) : (length *= 2) {
+        var min: usize = 0;
+        while (min < n_inclusive) : (min += length * 2) {
+            const mid = @min(min + length - 1, n_non_inclusive);
+            const max = @min(min + length * 2 - 1, n_non_inclusive);
+            try merge(buf, tempbuf, min, mid, max);
         }
-    }
-    if (i<left.len) {
-        @memcpy(buf[buf_index..buf_index+left.len-i], left[i..]);
-    } else if (j < right.len) {
-        @memcpy(buf[buf_index..buf_index+right.len-j], right[j..]);
     }
 }
 
-pub fn printArr(arr: anytype) void {
-    for (arr) |item| {
-        std.debug.print("{d} ", .{item});
+inline fn merge(buf: anytype, tempbuf: anytype, min: usize, mid: usize, max: usize) !void {
+    var left = tempbuf.ptr + min;
+    const left_len = mid-min+1;
+    if (left_len <= 16) { // Insertion sort fallback for small partitions.
+        try insertion_sort(null, buf[min..max+1]);
+        return;
     }
+    @memcpy(left, buf[min..mid+1]); // Only use the left side.
+    var i: usize = 0;
+    var j: usize = mid + 1;
+    var buf_ptr = buf.ptr;
+    var buf_index: usize = min;
+    while (i < left_len and j <= max) : (buf_index += 1) { // Standard merging loop.
+        if (left[i] <= buf[j]) {
+            buf_ptr[buf_index] = left[i];
+            i += 1;
+        } else { // Index in-place on the right side.
+            buf_ptr[buf_index] = buf_ptr[j];
+            j += 1;
+        }
+    }
+    if (i<left_len) { // Right side is in-place; only copy left side over if unfinished.
+        @memcpy(buf_ptr + buf_index, left[i..left_len]);
+    }
+}
+
+pub inline fn insertion_sort(allocator: anytype, buf: anytype) !void {
+    _ = allocator; // Here to appease the sorter testing function.
+    var buf_ptr = buf.ptr;
+    const buf_len = buf.len;
+    if (buf_len <= 1) return;
+    for (1..buf_len) |i| {
+        const key = buf_ptr[i];
+        var j = i;
+        while (j > 0 and buf_ptr[j-1] > key) {
+            buf_ptr[j] = buf_ptr[j-1];
+            j -= 1;
+        }
+        buf_ptr[j] = key;
+    }
+}
+
+pub inline fn selection_sort(allocator: anytype, buf: anytype) !void {
+    _ = allocator; // Here to appease the sorter testing function.
+    var buf_ptr = buf.ptr;
+    const buf_len = buf.len;
+    if (buf_len <= 1) return;
+    for (0..buf_len) |i| {
+        var current_min: usize = i;
+        for (i+1..buf_len) |j| {
+            if (buf_ptr[j] < buf_ptr[current_min]) {
+                current_min = j;
+            }
+        }
+        if (current_min != i) {
+            const temp = buf_ptr[current_min];
+            buf_ptr[current_min] = buf_ptr[i];
+            buf_ptr[i] = temp;
+        }
+    }
+}
+
+pub fn print_arr(outstream: anytype, arr: anytype) !void {
+    if (arr.len > 100) {
+        try outstream.print("{{{d} Elements}}", .{arr.len});
+        return;
+    }
+    try outstream.print("{{", .{});
+    for (0..arr.len-1) |i| {
+        try outstream.print("{d}, ", .{arr[i]});
+    }
+    try outstream.print("{d}}}", .{arr[arr.len-1]});
+}
+
+pub fn test_sorter(sorter_name: []const u8, allocator: anytype, sorter: anytype, outstream: anytype, buf: anytype) !void {
+    try outstream.print("Testing {s}: ", .{sorter_name});
+    try print_arr(outstream, buf);
+    try outstream.print("\nResult: ", .{});
+    for (0..sorter_name.len + 2) |_| { // Rectify spacing between prints.
+        try outstream.print(" ", .{});
+    }
+    const start = std.time.nanoTimestamp();
+    try sorter(allocator, buf);
+    const end = std.time.nanoTimestamp();
+    try print_arr(outstream, buf);
+    try outstream.print(" ({} seconds)\n\n", .{@as(f128, @floatFromInt(end - start)) / 1000000000.0});
+    try outstream.flush();
 }
