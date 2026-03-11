@@ -45,6 +45,13 @@ fn SortStack(comptime T: type) type {
     };
 }
 
+pub const SortResult = struct {
+    time_seconds: f128,
+    data_size: usize,
+    efficiency: f128,
+    name: []const u8,
+};
+
 fn create_sort_stack(allocator: anytype, comptime T: type) !SortStack(T) {
     var stack = SortStack(T){};
     stack.allocation = try allocator.alloc(T, stack.capacity);
@@ -55,6 +62,54 @@ fn create_sort_stack_initsize(allocator: anytype, comptime T: type, size: usize)
     var stack = SortStack(T){.capacity = size};
     stack.allocation = try allocator.alloc(T, stack.capacity);
     return stack;
+}
+
+pub const Equality = enum {
+    EQ,
+    NE,
+    LE,
+    GE,
+    GT,
+    LT,
+};
+
+inline fn sort_comparator_internal(a: anytype, b: anytype, eq: Equality) bool {
+    switch(eq) {
+        .EQ => {
+            return a == b;
+        },
+        .NE => {
+            return a != b;
+        },
+        .GE => {
+            return a >= b;
+        },
+        .LE => {
+            return a <= b;
+        },
+        .GT => {
+            return a > b;
+        },
+        .LT => {
+            return a < b;
+        }
+    }
+}
+
+pub inline fn sort_comparator(a: anytype, b: anytype, eq: Equality) bool {
+    std.debug.assert(@TypeOf(a) == @TypeOf(b));
+    switch(@TypeOf(a)) {
+        SortResult => {
+            const item1 = a.time_seconds;
+            const item2 = b.time_seconds;
+            return sort_comparator_internal(item1, item2, eq);
+        },
+        else => {
+            const item1 = a;
+            const item2 = b;
+            return sort_comparator_internal(item1, item2, eq);
+        },
+    }
 }
 
 pub fn shuffle(buf: anytype) void {
@@ -141,7 +196,7 @@ inline fn merge(buf: anytype, tempbuf: anytype, min: usize, mid: usize, max: usi
     var buf_ptr = buf.ptr;
     var buf_index: usize = min;
     while (i < left_len and j <= max) : (buf_index += 1) { // Standard merging loop.
-        if (left[i] <= buf[j]) {
+        if (sort_comparator(left[i], buf[j], .LE)) {
             buf_ptr[buf_index] = left[i];
             i += 1;
         } else { // Index in-place on the right side.
@@ -162,7 +217,7 @@ pub inline fn insertion_sort(allocator: anytype, buf: anytype) !void {
     for (1..buf_len) |i| {
         const key = buf_ptr[i];
         var j = i;
-        while (j > 0 and buf_ptr[j-1] > key) {
+        while (j > 0 and sort_comparator(buf_ptr[j-1], key, .GT)) {
             buf_ptr[j] = buf_ptr[j-1];
             j -= 1;
         }
@@ -172,13 +227,13 @@ pub inline fn insertion_sort(allocator: anytype, buf: anytype) !void {
 
 pub inline fn selection_sort(allocator: anytype, buf: anytype) !void {
     _ = allocator; // Here to appease the sorter testing function.
-    var buf_ptr = buf.ptr;
+    var buf_ptr = buf;
     const buf_len = buf.len;
     if (buf_len <= 1) return;
     for (0..buf_len) |i| {
         var current_min: usize = i;
         for (i+1..buf_len) |j| {
-            if (buf_ptr[j] < buf_ptr[current_min]) {
+            if (sort_comparator(buf_ptr[j], buf_ptr[current_min], .LT)) {
                 current_min = j;
             }
         }
@@ -186,6 +241,23 @@ pub inline fn selection_sort(allocator: anytype, buf: anytype) !void {
             const temp = buf_ptr[current_min];
             buf_ptr[current_min] = buf_ptr[i];
             buf_ptr[i] = temp;
+        }
+    }
+}
+
+pub inline fn bubble_sort(allocator: anytype, buf: anytype) !void {
+    _ = allocator;
+    var buf_ptr = buf;
+    var swapped = true;
+    while (swapped) {
+        swapped = false;
+        for (1..buf.len) |i| {
+            if (sort_comparator(buf_ptr[i], buf_ptr[i-1], .LT)) {
+                swapped = true;
+                const temp = buf_ptr[i];
+                buf_ptr[i] = buf_ptr[i-1];
+                buf_ptr[i-1] = temp;
+            }
         }
     }
 }
@@ -202,7 +274,7 @@ pub fn print_arr(outstream: anytype, arr: anytype) !void {
     try outstream.print("{d}}}", .{arr[arr.len-1]});
 }
 
-pub fn test_sorter(sorter_name: []const u8, allocator: anytype, sorter: anytype, outstream: anytype, buf: anytype) !void {
+pub fn test_sorter(sorter_name: []const u8, allocator: anytype, sorter: anytype, outstream: anytype, buf: anytype) !SortResult {
     try outstream.print("Testing {s}: ", .{sorter_name});
     try print_arr(outstream, buf);
     try outstream.print("\nResult: ", .{});
@@ -213,6 +285,15 @@ pub fn test_sorter(sorter_name: []const u8, allocator: anytype, sorter: anytype,
     try sorter(allocator, buf);
     const end = std.time.nanoTimestamp();
     try print_arr(outstream, buf);
-    try outstream.print(" ({} seconds)\n\n", .{@as(f128, @floatFromInt(end - start)) / 1000000000.0});
+    const time = @as(f128, @floatFromInt(end - start)) / 1000000000.0;
+    const result: SortResult = .{
+        .time_seconds = time,
+        .data_size = buf.len,
+        .name = sorter_name,
+        .efficiency = @as(f128, @floatFromInt(buf.len)) / time,
+    };
+    try outstream.print(" ({} seconds)\n\n", .{result.time_seconds});
     try outstream.flush();
+    shuffle(buf);
+    return result;
 }

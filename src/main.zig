@@ -23,14 +23,34 @@ pub fn main() !void {
     for (0..random_buf.len) |i| {
         random_buf[i] = std.crypto.random.intRangeAtMost(u16, 0, 100);
     }
-    try sort.test_sorter("Merge Sort Loop", allocator, sort.merge_sort_loop, stdout, random_buf);
-    sort.shuffle(random_buf);
-    try sort.test_sorter("Merge Sort Stack", allocator, sort.merge_sort_stack, stdout, random_buf);
-    sort.shuffle(random_buf);
-    try sort.test_sorter("Merge Sort Recursive", allocator, sort.merge_sort_recursive, stdout, random_buf);
-    sort.shuffle(random_buf);
-    try sort.test_sorter("Selection Sort", allocator, sort.selection_sort, stdout, random_buf);
-    sort.shuffle(random_buf);
-    try sort.test_sorter("Insertion Sort", allocator, sort.insertion_sort, stdout, random_buf);
-    sort.shuffle(random_buf);
+
+    var results: [6]sort.SortResult = undefined;
+    var resultIndex: usize = 0;
+
+    results[resultIndex] = try sort.test_sorter("Merge Sort Loop", allocator, sort.merge_sort_loop, stdout, random_buf);
+    resultIndex += 1;
+
+    results[resultIndex] = try sort.test_sorter("Insertion Sort", allocator, sort.insertion_sort, stdout, random_buf);
+    resultIndex += 1;
+
+    results[resultIndex] = try sort.test_sorter("Selection Sort", allocator, sort.selection_sort, stdout, random_buf);
+    resultIndex += 1;
+
+    results[resultIndex] = try sort.test_sorter("Bubble Sort", allocator, sort.bubble_sort, stdout, random_buf);
+    resultIndex += 1;
+
+    results[resultIndex] = try sort.test_sorter("Merge Sort Recursive", allocator, sort.merge_sort_recursive, stdout, random_buf);
+    resultIndex += 1;
+
+    results[resultIndex] = try sort.test_sorter("Merge Sort Stack", allocator, sort.merge_sort_stack, stdout, random_buf);
+    resultIndex += 1;
+
+    try sort.merge_sort_loop(allocator, &results);
+    try stdout.print("In order of speed: ", .{});
+    for (0..results.len-1) |i| {
+        try stdout.print("{s}, ", .{results[i].name});
+    }
+    try stdout.print("then {s}.", .{results[results.len-1].name});
+    try stdout.print("\n", .{});
+    try stdout.flush();
 }
