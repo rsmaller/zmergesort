@@ -14,6 +14,27 @@ const MergeSortFrame = struct {
     },
 };
 
+pub const SortResult = struct {
+    const Self = @This();
+    time_seconds: f128,
+    data_size: usize,
+    efficiency: f128,
+    name: []const u8,
+
+    pub inline fn compare(a: *const Self, b: SortResult, eq: Equality) bool {
+        return numeric_comparator(a.time_seconds, b.time_seconds, eq);
+    }
+};
+
+pub const Equality = enum {
+    EQ,
+    NE,
+    LE,
+    GE,
+    GT,
+    LT,
+};
+
 fn SortStack(comptime T: type) type {
     return struct {
         const Self = @This();
@@ -42,15 +63,18 @@ fn SortStack(comptime T: type) type {
         pub fn deinit(self: *Self, allocator: anytype) void {
             allocator.free(self.allocation);
         }
+
+        pub fn top(self: *Self) !T {
+            if (self.current_index == 0) return StackError.EmptyStack;
+            return self.allocation[self.current_index - 1];
+        }
+
+        pub fn top_ptr(self: *Self) !*T {
+            if (self.current_index == 0) return StackError.EmptyStack;
+            return &self.allocation[self.current_index - 1];
+        }
     };
 }
-
-pub const SortResult = struct {
-    time_seconds: f128,
-    data_size: usize,
-    efficiency: f128,
-    name: []const u8,
-};
 
 fn create_sort_stack(allocator: anytype, comptime T: type) !SortStack(T) {
     var stack = SortStack(T){};
@@ -64,16 +88,7 @@ fn create_sort_stack_initsize(allocator: anytype, comptime T: type, size: usize)
     return stack;
 }
 
-pub const Equality = enum {
-    EQ,
-    NE,
-    LE,
-    GE,
-    GT,
-    LT,
-};
-
-inline fn sort_comparator_internal(a: anytype, b: anytype, eq: Equality) bool {
+pub inline fn numeric_comparator(a: anytype, b: anytype, eq: Equality) bool {
     switch(eq) {
         .EQ => {
             return a == b;
@@ -96,18 +111,14 @@ inline fn sort_comparator_internal(a: anytype, b: anytype, eq: Equality) bool {
     }
 }
 
-pub inline fn sort_comparator(a: anytype, b: anytype, eq: Equality) bool {
+pub inline fn generic_comparator(a: anytype, b: anytype, eq: Equality) bool {
     std.debug.assert(@TypeOf(a) == @TypeOf(b));
-    switch(@TypeOf(a)) {
-        SortResult => {
-            const item1 = a.time_seconds;
-            const item2 = b.time_seconds;
-            return sort_comparator_internal(item1, item2, eq);
+    switch(@typeInfo(@TypeOf(a))) {
+        .@"struct" => {
+            return a.compare(b, eq);
         },
         else => {
-            const item1 = a;
-            const item2 = b;
-            return sort_comparator_internal(item1, item2, eq);
+            return numeric_comparator(a, b, eq);
         },
     }
 }
@@ -124,11 +135,12 @@ pub fn shuffle(buf: anytype) void {
 pub fn merge_sort_stack(allocator: anytype, buf: anytype) !void {
     const tempbuf = try allocator.alloc(@TypeOf(buf[0]), buf.len);
     defer allocator.free(tempbuf);
-    var stack = try create_sort_stack_initsize(allocator, MergeSortFrame, @as(usize, @intFromFloat(@ceil(@log2(@as(f64, @floatFromInt(buf.len)))))) * 2);
+    const stack_size: usize = std.math.log2_int_ceil(usize, buf.len) * 2;
+    var stack = try create_sort_stack_initsize(allocator, MergeSortFrame, stack_size);
     defer stack.deinit(allocator);
     try stack.push(allocator, .{.left = 0, .right = buf.len-1, .state = .NO_RECURSE});
     while (stack.current_index > 0) {
-        var current_frame = &stack.allocation[stack.current_index - 1];
+        var current_frame = try stack.top_ptr();
         const left: usize = current_frame.left;
         const right: usize = current_frame.right;
         const middle = (right + left) / 2;
@@ -196,7 +208,7 @@ inline fn merge(buf: anytype, tempbuf: anytype, min: usize, mid: usize, max: usi
     var buf_ptr = buf.ptr;
     var buf_index: usize = min;
     while (i < left_len and j <= max) : (buf_index += 1) { // Standard merging loop.
-        if (sort_comparator(left[i], buf[j], .LE)) {
+        if (generic_comparator(left[i], buf[j], .LE)) {
             buf_ptr[buf_index] = left[i];
             i += 1;
         } else { // Index in-place on the right side.
@@ -217,7 +229,7 @@ pub inline fn insertion_sort(allocator: anytype, buf: anytype) !void {
     for (1..buf_len) |i| {
         const key = buf_ptr[i];
         var j = i;
-        while (j > 0 and sort_comparator(buf_ptr[j-1], key, .GT)) {
+        while (j > 0 and generic_comparator(buf_ptr[j-1], key, .GT)) {
             buf_ptr[j] = buf_ptr[j-1];
             j -= 1;
         }
@@ -233,7 +245,7 @@ pub inline fn selection_sort(allocator: anytype, buf: anytype) !void {
     for (0..buf_len) |i| {
         var current_min: usize = i;
         for (i+1..buf_len) |j| {
-            if (sort_comparator(buf_ptr[j], buf_ptr[current_min], .LT)) {
+            if (generic_comparator(buf_ptr[j], buf_ptr[current_min], .LT)) {
                 current_min = j;
             }
         }
@@ -252,13 +264,59 @@ pub inline fn bubble_sort(allocator: anytype, buf: anytype) !void {
     while (swapped) {
         swapped = false;
         for (1..buf.len) |i| {
-            if (sort_comparator(buf_ptr[i], buf_ptr[i-1], .LT)) {
+            if (generic_comparator(buf_ptr[i], buf_ptr[i-1], .LT)) {
                 swapped = true;
                 const temp = buf_ptr[i];
                 buf_ptr[i] = buf_ptr[i-1];
                 buf_ptr[i-1] = temp;
             }
         }
+    }
+}
+
+pub inline fn quick_sort_partition_lomuto(buf: anytype, min: usize, max: usize) usize {
+    const key = buf[max]; // Assume pivot is at the end; swap pivot into correct place after.
+    var i: usize = min;
+    for (min..max) |j| {
+        if (buf[j] < key) {
+            std.mem.swap(@TypeOf(buf[0]), &buf[i], &buf[j]); // Push everything to the back.
+            i += 1;
+        }
+    }
+    std.mem.swap(@TypeOf(buf[0]), &buf[i], &buf[max]); // Swap pivot into new correct location.
+    return i;
+}
+
+pub fn quick_sort_recursive(allocator: anytype, buf: anytype) !void {
+   quick_sort_recursive_internal(allocator, buf, 0, buf.len-1);
+}
+
+fn quick_sort_recursive_internal(allocator: anytype, buf: anytype, min: usize, max: usize) void {
+    if (min >= max) return;
+    const new_pivot = quick_sort_partition_lomuto(buf, min, max);
+    if (new_pivot != 0) {
+        quick_sort_recursive_internal(allocator, buf, min, new_pivot-1);
+    }
+    quick_sort_recursive_internal(allocator, buf, new_pivot+1, max);
+}
+
+pub fn quick_sort_stack(allocator: anytype, buf: anytype) !void {
+    const stack_size: usize = std.math.log2_int_ceil(usize, buf.len) * 2;
+    var stack = try create_sort_stack_initsize(allocator, MergeSortFrame, stack_size);
+    defer stack.deinit(allocator);
+    try stack.push(allocator, .{.left = 0, .right = buf.len-1, .state = .NO_RECURSE});
+    while (stack.current_index > 0) {
+        const current_frame = try stack.pop();
+        const left: usize = current_frame.left;
+        const right: usize = current_frame.right;
+        const middle: usize = quick_sort_partition_lomuto(buf, left, right);
+        if (middle > left) {
+            try stack.push(allocator, .{.left = left, .right = middle-1, .state = .NO_RECURSE});
+        }
+        if (middle + 1 < right) {
+            try stack.push(allocator, .{.left = middle+1, .right = right, .state = .NO_RECURSE});
+        }
+
     }
 }
 

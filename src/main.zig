@@ -24,10 +24,22 @@ pub fn main() !void {
         random_buf[i] = std.crypto.random.intRangeAtMost(u16, 0, 100);
     }
 
-    var results: [6]sort.SortResult = undefined;
+    var results: [8]sort.SortResult = undefined;
     var resultIndex: usize = 0;
 
+    results[resultIndex] = try sort.test_sorter("Merge Sort Recursive", allocator, sort.merge_sort_recursive, stdout, random_buf);
+    resultIndex += 1;
+
+    results[resultIndex] = try sort.test_sorter("Merge Sort Stack", allocator, sort.merge_sort_stack, stdout, random_buf);
+    resultIndex += 1;
+
     results[resultIndex] = try sort.test_sorter("Merge Sort Loop", allocator, sort.merge_sort_loop, stdout, random_buf);
+    resultIndex += 1;
+
+    results[resultIndex] = try sort.test_sorter("Quick Sort Recursive", allocator, sort.quick_sort_recursive, stdout, random_buf);
+    resultIndex += 1;
+
+    results[resultIndex] = try sort.test_sorter("Quick Sort Stack", allocator, sort.quick_sort_stack, stdout, random_buf);
     resultIndex += 1;
 
     results[resultIndex] = try sort.test_sorter("Insertion Sort", allocator, sort.insertion_sort, stdout, random_buf);
@@ -39,18 +51,12 @@ pub fn main() !void {
     results[resultIndex] = try sort.test_sorter("Bubble Sort", allocator, sort.bubble_sort, stdout, random_buf);
     resultIndex += 1;
 
-    results[resultIndex] = try sort.test_sorter("Merge Sort Recursive", allocator, sort.merge_sort_recursive, stdout, random_buf);
-    resultIndex += 1;
-
-    results[resultIndex] = try sort.test_sorter("Merge Sort Stack", allocator, sort.merge_sort_stack, stdout, random_buf);
-    resultIndex += 1;
-
     try sort.merge_sort_loop(allocator, &results);
     try stdout.print("In order of speed: ", .{});
     for (0..results.len-1) |i| {
-        try stdout.print("{s}, ", .{results[i].name});
+        try stdout.print("{s} ({:.0}/s), ", .{results[i].name, results[i].efficiency});
     }
-    try stdout.print("then {s}.", .{results[results.len-1].name});
+    try stdout.print("then {s} ({:.0}/s).", .{results[results.len-1].name, results[results.len-1].efficiency});
     try stdout.print("\n", .{});
     try stdout.flush();
 }
