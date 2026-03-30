@@ -122,6 +122,7 @@ pub inline fn generic_comparator(a: anytype, b: anytype, eq: Equality) bool {
 }
 
 pub inline fn shuffle(buf: anytype) void {
+    if (buf.len == 0) return;
     for (0..buf.len) |i| {
         const swapIndex = std.crypto.random.intRangeAtMost(usize, 0, buf.len - 1);
         const temp = buf[i];
@@ -131,6 +132,7 @@ pub inline fn shuffle(buf: anytype) void {
 }
 
 pub inline fn reversed_identity(buf: anytype) void {
+    if (buf.len == 0) return;
     const T = @TypeOf(buf[0]);
     const max = std.math.maxInt(T);
     if (buf.len > max) {
@@ -149,12 +151,14 @@ pub inline fn reversed_identity(buf: anytype) void {
 }
 
 pub inline fn randomize(buf: anytype, min: anytype, max: anytype) void {
+    if (buf.len == 0) return;
     for (0..buf.len) |i| {
         buf[i] = std.crypto.random.intRangeAtMost(@TypeOf(buf[i]), min, max);
     }
 }
 
 pub fn merge_sort_stack(allocator: anytype, buf: anytype) !void {
+    if (buf.len == 0) return;
     const tempbuf = try allocator.alloc(@TypeOf(buf[0]), buf.len);
     defer allocator.free(tempbuf);
     const stack_size: usize = std.math.log2_int_ceil(usize, buf.len) * 2;
@@ -188,6 +192,7 @@ pub fn merge_sort_stack(allocator: anytype, buf: anytype) !void {
 }
 
 pub fn merge_sort_recursive(allocator: anytype, buf: anytype) !void {
+    if (buf.len == 0) return;
     const tempbuf = try allocator.alloc(@TypeOf(buf[0]), buf.len);
     defer allocator.free(tempbuf);
     try merge_sort_recursive_internal(buf, tempbuf, 0, buf.len - 1); // Recurse in another function to permit pre-allocation.
@@ -202,6 +207,7 @@ fn merge_sort_recursive_internal(buf: anytype, tempbuf: anytype, min: usize, max
 }
 
 pub fn merge_sort_loop(allocator: anytype, buf: anytype) !void {
+    if (buf.len == 0) return;
     const tempbuf = try allocator.alloc(@TypeOf(buf[0]), buf.len);
     defer allocator.free(tempbuf);
     var length: usize = 1;
@@ -244,6 +250,7 @@ inline fn merge(buf: anytype, tempbuf: anytype, min: usize, mid: usize, max: usi
 }
 
 pub inline fn insertion_sort(allocator: anytype, buf: anytype) !void {
+    if (buf.len == 0) return;
     _ = allocator; // Here to appease the sorter testing function.
     var buf_ptr = buf.ptr;
     const buf_len = buf.len;
@@ -260,6 +267,7 @@ pub inline fn insertion_sort(allocator: anytype, buf: anytype) !void {
 }
 
 pub inline fn selection_sort(allocator: anytype, buf: anytype) !void {
+    if (buf.len == 0) return;
     _ = allocator; // Here to appease the sorter testing function.
     var buf_ptr = buf;
     const buf_len = buf.len;
@@ -280,6 +288,7 @@ pub inline fn selection_sort(allocator: anytype, buf: anytype) !void {
 }
 
 pub inline fn bubble_sort(allocator: anytype, buf: anytype) !void {
+    if (buf.len == 0) return;
     _ = allocator;
     var buf_ptr = buf;
     var swapped = true;
@@ -348,6 +357,7 @@ pub inline fn quick_sort_partition_hoare(buf: anytype, min: usize, max: usize) u
 }
 
 pub fn quick_sort_recursive(allocator: anytype, buf: anytype) !void {
+    if (buf.len == 0) return;
     try quick_sort_recursive_internal(allocator, buf, 0, buf.len - 1);
 }
 
@@ -365,6 +375,7 @@ fn quick_sort_recursive_internal(allocator: anytype, buf: anytype, min: usize, m
 }
 
 pub fn quick_sort_stack(allocator: anytype, buf: anytype) !void {
+    if (buf.len == 0) return;
     const stack_size: usize = std.math.log2_int_ceil(usize, buf.len) * 2;
     var stack = try create_sort_stack_initsize(allocator, MergeSortFrame, stack_size);
     defer stack.deinit(allocator);
@@ -384,6 +395,7 @@ pub fn quick_sort_stack(allocator: anytype, buf: anytype) !void {
 }
 
 fn max_in_arr(buf: anytype) @TypeOf(buf[0]) {
+    if (buf.len == 0) return std.math.minInt(@TypeOf(buf[0]));
     var result: @TypeOf(buf[0]) = std.math.minInt(@TypeOf(buf[0]));
     for (0..buf.len) |i| {
         if (buf[i] > result) {
@@ -394,26 +406,58 @@ fn max_in_arr(buf: anytype) @TypeOf(buf[0]) {
 }
 const SortError = error{
     NonIntegerError,
-    InvalidDataTypeError
+    InvalidDataTypeError,
+    ArithmeticOverflow
 };
 
-pub fn counting_sort(allocator: anytype, buf: anytype) !void {
-    const T = @TypeOf(buf[0]);
+fn expect_signed_int(comptime T: type) void {
     switch (@typeInfo(T)) { // Enforce unsigned data types for simplicity.
-        .int => {
-            switch (.signedness) {
-                .signed => {
-                    return SortError.InvalidDataTypeError;
+        .int => |int_data| {
+            switch (int_data.signedness) {
+                .unsigned => {
+                    @compileError("Signed integer type expected");
                 },
                 else => {},
             }
         },
         else => {
-            return SortError.NonIntegerError;
+            @compileError("Signed integer type expected");
         },
     }
+}
+
+fn expect_any_int(comptime T: type) void {
+    switch (@typeInfo(T)) { // Enforce unsigned data types for simplicity.
+        .int => {},
+        else => {
+            @compileError("Integer type expected");
+        },
+    }
+}
+
+fn expect_unsigned_int(comptime T: type) void {
+    switch (@typeInfo(T)) { // Enforce unsigned data types for simplicity.
+        .int => |int_data| {
+        switch (int_data.signedness) {
+            .signed => {
+                @compileError("Unsigned integer type expected");
+            },
+            else => {},
+        }
+    },
+        else => {
+            @compileError("Unsigned integer type expected");
+        },
+    }
+}
+
+pub fn counting_sort(allocator: anytype, buf: anytype) !void {
+    if (buf.len == 0) return;
+    const T = @TypeOf(buf[0]);
+    expect_unsigned_int(T);
     const max = max_in_arr(buf);
-    var sort_buf: []usize = try allocator.alloc(usize, @intCast(max + 1));
+    const sort_buf_size = try std.math.add(usize, @as(usize, @intCast(max)), 1);
+    var sort_buf: []usize = try allocator.alloc(usize, sort_buf_size);
     defer allocator.free(sort_buf);
     @memset(sort_buf[0..], 0);
     for (0..buf.len) |i| {
