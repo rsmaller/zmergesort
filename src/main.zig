@@ -22,18 +22,14 @@ pub fn main() !void {
         return;
     }
     const n = try std.fmt.parseInt(u32, args[1], 10);
-    const random_buf = try allocator.alloc(u16, n);
+    const random_buf = try allocator.alloc(u32, n);
     defer allocator.free(random_buf);
 
-    // random_buf[0] = 1; // For better case where array is randomized.
-    // for (0..random_buf.len) |i| {
-    //     random_buf[i] = std.crypto.random.intRangeAtMost(u16, 0, 100);
-    // }
-
-    sort.reversed_identity(random_buf);
-
-    var results: [8]sort.SortResult = undefined;
+    var results: [9]sort.SortResult = undefined;
     var resultIndex: usize = 0;
+
+    results[resultIndex] = try sort.test_sorter("Counting Sort", allocator, sort.counting_sort, stdout, random_buf);
+    resultIndex += 1;
 
     results[resultIndex] = try sort.test_sorter("Merge Sort Recursive", allocator, sort.merge_sort_recursive, stdout, random_buf);
     resultIndex += 1;

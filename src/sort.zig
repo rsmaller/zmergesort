@@ -121,7 +121,7 @@ pub inline fn generic_comparator(a: anytype, b: anytype, eq: Equality) bool {
     }
 }
 
-pub fn shuffle(buf: anytype) void {
+pub inline fn shuffle(buf: anytype) void {
     for (0..buf.len) |i| {
         const swapIndex = std.crypto.random.intRangeAtMost(usize, 0, buf.len - 1);
         const temp = buf[i];
@@ -130,7 +130,7 @@ pub fn shuffle(buf: anytype) void {
     }
 }
 
-pub fn reversed_identity(buf: anytype) void {
+pub inline fn reversed_identity(buf: anytype) void {
     const T = @TypeOf(buf[0]);
     const max = std.math.maxInt(T);
     if (buf.len > max) {
@@ -145,6 +145,12 @@ pub fn reversed_identity(buf: anytype) void {
         for (0..buf.len) |i| {
             buf[i] = @as(T, @intCast(buf.len - i - 1));
         }
+    }
+}
+
+pub inline fn randomize(buf: anytype, min: anytype, max: anytype) void {
+    for (0..buf.len) |i| {
+        buf[i] = std.crypto.random.intRangeAtMost(@TypeOf(buf[i]), min, max);
     }
 }
 
@@ -377,6 +383,50 @@ pub fn quick_sort_stack(allocator: anytype, buf: anytype) !void {
     }
 }
 
+fn max_in_arr(buf: anytype) @TypeOf(buf[0]) {
+    var result: @TypeOf(buf[0]) = std.math.minInt(@TypeOf(buf[0]));
+    for (0..buf.len) |i| {
+        if (buf[i] > result) {
+            result = buf[i];
+        }
+    }
+    return result;
+}
+const SortError = error{
+    NonIntegerError,
+    InvalidDataTypeError
+};
+
+pub fn counting_sort(allocator: anytype, buf: anytype) !void {
+    const T = @TypeOf(buf[0]);
+    switch (@typeInfo(T)) { // Enforce unsigned data types for simplicity.
+        .int => {
+            switch (.signedness) {
+                .signed => {
+                    return SortError.InvalidDataTypeError;
+                },
+                else => {},
+            }
+        },
+        else => {
+            return SortError.NonIntegerError;
+        },
+    }
+    const max = max_in_arr(buf);
+    var sort_buf: []usize = try allocator.alloc(usize, @intCast(max + 1));
+    defer allocator.free(sort_buf);
+    @memset(sort_buf[0..], 0);
+    for (0..buf.len) |i| {
+        sort_buf[@as(usize, @intCast(buf[i]))] += 1;
+    }
+    var currentIndex: usize = 0; // Index for memsetting in the original buffer.
+    for (0..sort_buf.len) |i| { // Loop through the counts buffer. i is the value being tested.
+        const current_count = sort_buf[i]; // Frequency of the value i.
+        @memset(buf[currentIndex..currentIndex+current_count], @as(T, @intCast(i)));
+        currentIndex += current_count;
+    }
+}
+
 pub fn print_arr(outstream: anytype, arr: anytype) !void {
     if (arr.len > 100) {
         try outstream.print("{{{d} Elements}}", .{arr.len});
@@ -390,6 +440,7 @@ pub fn print_arr(outstream: anytype, arr: anytype) !void {
 }
 
 pub fn test_sorter(sorter_name: []const u8, allocator: anytype, sorter: anytype, outstream: anytype, buf: anytype) !SortResult {
+    randomize(buf, 0, 100);
     try outstream.print("Testing {s}: ", .{sorter_name});
     try print_arr(outstream, buf);
     try outstream.print("\nResult: ", .{});
