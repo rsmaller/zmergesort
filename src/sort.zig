@@ -1,17 +1,5 @@
 const std = @import("std");
 
-const StackError = error{EmptyStack};
-
-const MergeSortFrame = struct {
-    left: usize,
-    right: usize,
-    state: enum {
-        NO_RECURSE,
-        AFTER_LEFT,
-        AFTER_RIGHT,
-    },
-};
-
 pub const SortResult = struct {
     const Self = @This();
     time_seconds: f128,
@@ -24,13 +12,25 @@ pub const SortResult = struct {
     }
 };
 
-pub const Equality = enum {
+pub const Equality = enum { // To be used only for comparison-based sorting.
     EQ,
     NE,
     LE,
     GE,
     GT,
     LT,
+};
+
+const StackError = error{EmptyStack};
+
+const SortFrame = struct {
+    left: usize,
+    right: usize,
+    state: enum {
+        NO_RECURSE,
+        AFTER_LEFT,
+        AFTER_RIGHT,
+    },
 };
 
 fn SortStack(comptime T: type) type {
@@ -40,13 +40,18 @@ fn SortStack(comptime T: type) type {
         capacity: usize = 4,
         allocation: []T = undefined,
 
-        pub fn push(self: *Self, allocator: anytype, item: T) !void {
+        pub fn push_safe(self: *Self, allocator: anytype, item: T) !void {
             if (self.current_index == self.capacity) {
                 self.capacity = self.capacity * 2;
                 if (!allocator.resize(self.allocation, self.capacity)) {
                     self.allocation = try allocator.realloc(self.allocation, self.capacity);
                 }
             }
+            self.allocation[self.current_index] = item;
+            self.current_index += 1;
+        }
+
+        pub inline fn push_hot(self: *Self, item: T) void { // Only use on a pre-allocated stack.
             self.allocation[self.current_index] = item;
             self.current_index += 1;
         }
@@ -162,9 +167,9 @@ pub fn merge_sort_stack(allocator: anytype, buf: anytype) !void {
     const tempbuf = try allocator.alloc(@TypeOf(buf[0]), buf.len);
     defer allocator.free(tempbuf);
     const stack_size: usize = std.math.log2_int_ceil(usize, buf.len) * 2;
-    var stack = try create_sort_stack_initsize(allocator, MergeSortFrame, stack_size);
+    var stack = try create_sort_stack_initsize(allocator, SortFrame, stack_size);
     defer stack.deinit(allocator);
-    try stack.push(allocator, .{ .left = 0, .right = buf.len - 1, .state = .NO_RECURSE });
+    stack.push_hot(.{ .left = 0, .right = buf.len - 1, .state = .NO_RECURSE });
     while (stack.current_index > 0) {
         var current_frame = try stack.top_ptr();
         const left: usize = current_frame.left;
@@ -177,11 +182,11 @@ pub fn merge_sort_stack(allocator: anytype, buf: anytype) !void {
                     continue;
                 }
                 current_frame.state = .AFTER_LEFT;
-                try stack.push(allocator, .{ .left = left, .right = middle, .state = .NO_RECURSE });
+                stack.push_hot(.{ .left = left, .right = middle, .state = .NO_RECURSE });
             },
             .AFTER_LEFT => {
                 current_frame.state = .AFTER_RIGHT;
-                try stack.push(allocator, .{ .left = middle + 1, .right = right, .state = .NO_RECURSE });
+                stack.push_hot(.{ .left = middle + 1, .right = right, .state = .NO_RECURSE });
             },
             .AFTER_RIGHT => {
                 try merge(buf, tempbuf, left, middle, right);
@@ -377,19 +382,23 @@ fn quick_sort_recursive_internal(allocator: anytype, buf: anytype, min: usize, m
 pub fn quick_sort_stack(allocator: anytype, buf: anytype) !void {
     if (buf.len == 0) return;
     const stack_size: usize = std.math.log2_int_ceil(usize, buf.len) * 2;
-    var stack = try create_sort_stack_initsize(allocator, MergeSortFrame, stack_size);
+    var stack = try create_sort_stack_initsize(allocator, SortFrame, stack_size);
     defer stack.deinit(allocator);
-    try stack.push(allocator, .{ .left = 0, .right = buf.len - 1, .state = .NO_RECURSE });
+    stack.push_hot(.{ .left = 0, .right = buf.len - 1, .state = .NO_RECURSE });
     while (stack.current_index > 0) {
         const current_frame = try stack.pop();
         const left: usize = current_frame.left;
         const right: usize = current_frame.right;
-        const middle: usize = quick_sort_partition_hoare(buf, left, right);
-        if (middle > left) {
-            try stack.push(allocator, .{ .left = left, .right = middle, .state = .NO_RECURSE });
-        }
-        if (middle + 1 < right) {
-            try stack.push(allocator, .{ .left = middle + 1, .right = right, .state = .NO_RECURSE });
+        if (right - left <= 16) {
+            try insertion_sort(allocator, buf[left..right + 1]);
+        } else {
+            const middle: usize = quick_sort_partition_hoare(buf, left, right);
+            if (middle > left) {
+                stack.push_hot(.{ .left = left, .right = middle, .state = .NO_RECURSE });
+            }
+            if (middle + 1 < right) {
+                stack.push_hot(.{ .left = middle + 1, .right = right, .state = .NO_RECURSE });
+            }
         }
     }
 }
@@ -463,11 +472,11 @@ pub fn counting_sort(allocator: anytype, buf: anytype) !void {
     for (0..buf.len) |i| {
         sort_buf[@as(usize, @intCast(buf[i]))] += 1;
     }
-    var currentIndex: usize = 0; // Index for memsetting in the original buffer.
+    var current_index: usize = 0; // Index for the start of memset in the original buffer.
     for (0..sort_buf.len) |i| { // Loop through the counts buffer. i is the value being tested.
         const current_count = sort_buf[i]; // Frequency of the value i.
-        @memset(buf[currentIndex..currentIndex+current_count], @as(T, @intCast(i)));
-        currentIndex += current_count;
+        @memset(buf[current_index..current_index+current_count], @as(T, @intCast(i)));
+        current_index += current_count;
     }
 }
 
@@ -483,8 +492,10 @@ pub fn print_arr(outstream: anytype, arr: anytype) !void {
     try outstream.print("{d}}}", .{arr[arr.len - 1]});
 }
 
-pub fn test_sorter(sorter_name: []const u8, allocator: anytype, sorter: anytype, outstream: anytype, buf: anytype) !SortResult {
-    randomize(buf, 0, 100);
+pub fn test_sorter(sorter_name: []const u8, allocator: anytype, sorter: anytype, outstream: anytype, buf: anytype, arrsetter: anytype, min: anytype, max: anytype) !SortResult {
+    // _ = min;
+    // _ = max;
+    arrsetter(buf, min, max);
     try outstream.print("Testing {s}: ", .{sorter_name});
     try print_arr(outstream, buf);
     try outstream.print("\nResult: ", .{});

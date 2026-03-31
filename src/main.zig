@@ -22,38 +22,44 @@ pub fn main() !void {
         return;
     }
     const n = try std.fmt.parseInt(u32, args[1], 10);
-    const random_buf = try allocator.alloc(u32, n);
+    const BufElementType: type = u32;
+    const random_buf = try allocator.alloc(BufElementType, n);
     defer allocator.free(random_buf);
 
     var results: [9]sort.SortResult = undefined;
     var resultIndex: usize = 0;
 
-    results[resultIndex] = try sort.test_sorter("Counting Sort", allocator, sort.counting_sort, stdout, random_buf);
+    const data_range_min: BufElementType = 0;
+    const data_range_max: BufElementType = 100;
+
+    try stdout.print("Testing arrays of size {} with a data range of {}.\n\n", .{n, data_range_max});
+
+    results[resultIndex] = try sort.test_sorter("Counting Sort", allocator, sort.counting_sort, stdout, random_buf, sort.randomize, data_range_min, data_range_max);
     resultIndex += 1;
 
-    results[resultIndex] = try sort.test_sorter("Merge Sort Recursive", allocator, sort.merge_sort_recursive, stdout, random_buf);
+    results[resultIndex] = try sort.test_sorter("Merge Sort Recursive", allocator, sort.merge_sort_recursive, stdout, random_buf, sort.randomize, data_range_min, data_range_max);
     resultIndex += 1;
 
-    results[resultIndex] = try sort.test_sorter("Merge Sort Stack", allocator, sort.merge_sort_stack, stdout, random_buf);
+    results[resultIndex] = try sort.test_sorter("Merge Sort Stack", allocator, sort.merge_sort_stack, stdout, random_buf, sort.randomize, data_range_min, data_range_max);
     resultIndex += 1;
 
-    results[resultIndex] = try sort.test_sorter("Merge Sort Loop", allocator, sort.merge_sort_loop, stdout, random_buf);
+    results[resultIndex] = try sort.test_sorter("Merge Sort Loop", allocator, sort.merge_sort_loop, stdout, random_buf, sort.randomize, data_range_min, data_range_max);
     resultIndex += 1;
 
-    results[resultIndex] = try sort.test_sorter("Quick Sort Recursive", allocator, sort.quick_sort_recursive, stdout, random_buf);
+    results[resultIndex] = try sort.test_sorter("Quick Sort Recursive", allocator, sort.quick_sort_recursive, stdout, random_buf, sort.randomize, data_range_min, data_range_max);
     resultIndex += 1;
 
-    results[resultIndex] = try sort.test_sorter("Quick Sort Stack", allocator, sort.quick_sort_stack, stdout, random_buf);
+    results[resultIndex] = try sort.test_sorter("Quick Sort Stack", allocator, sort.quick_sort_stack, stdout, random_buf, sort.randomize, data_range_min, data_range_max);
     resultIndex += 1;
 
     if (n <= 64000) {
-        results[resultIndex] = try sort.test_sorter("Insertion Sort", allocator, sort.insertion_sort, stdout, random_buf);
+        results[resultIndex] = try sort.test_sorter("Insertion Sort", allocator, sort.insertion_sort, stdout, random_buf, sort.randomize, data_range_min, data_range_max);
         resultIndex += 1;
 
-        results[resultIndex] = try sort.test_sorter("Selection Sort", allocator, sort.selection_sort, stdout, random_buf);
+        results[resultIndex] = try sort.test_sorter("Selection Sort", allocator, sort.selection_sort, stdout, random_buf, sort.randomize, data_range_min, data_range_max);
         resultIndex += 1;
 
-        results[resultIndex] = try sort.test_sorter("Bubble Sort", allocator, sort.bubble_sort, stdout, random_buf);
+        results[resultIndex] = try sort.test_sorter("Bubble Sort", allocator, sort.bubble_sort, stdout, random_buf, sort.randomize, data_range_min, data_range_max);
         resultIndex += 1;
     }
 
