@@ -12,6 +12,28 @@ pub const SortResult = struct {
     }
 };
 
+pub const SortResultContainer = struct{
+    const Self = @This();
+    count: usize,
+    buf: []SortResult = undefined,
+
+    pub inline fn add(a: *Self, b: SortResult, allocator: anytype) !void {
+        if (a.count == a.buf.len) {
+            a.buf = try allocator.realloc(a.buf, a.buf.len * 2);
+        }
+        a.buf[a.count] = b;
+        a.count += 1;
+    }
+
+    pub inline fn truncate(a: *Self, allocator: anytype) !void {
+        a.buf = try allocator.realloc(a.buf, a.count);
+    }
+};
+
+pub fn create_sort_container(allocator: anytype) !SortResultContainer {
+    return .{.count = 0, .buf = try allocator.alloc(SortResult, 4)};
+}
+
 pub const Equality = enum { // To be used only for comparison-based sorting.
     EQ,
     NE,
@@ -477,6 +499,44 @@ pub fn counting_sort(allocator: anytype, buf: anytype) !void {
         const current_count = sort_buf[i]; // Frequency of the value i.
         @memset(buf[current_index..current_index+current_count], @as(T, @intCast(i)));
         current_index += current_count;
+    }
+}
+
+
+pub fn radix_sort(allocator: anytype, buf: anytype) !void {
+    const bit_length: comptime_int = 16;
+    const base: comptime_int = 1 << bit_length;
+    if (buf.len == 0) return;
+    const T = @TypeOf(buf[0]);
+    const max_float = @as(f32, @floatFromInt(max_in_arr(buf)));
+    const passes = @as(usize, @intFromFloat(std.math.ceil(std.math.log(f32, base, max_float + 1.0))));
+    var place: usize = 0;
+    var temp = try allocator.alloc(T, buf.len);
+    defer allocator.free(temp);
+    var digitCounts = try allocator.alloc(T, base);
+    var buckets = try allocator.alloc(T, base);
+    defer allocator.free(digitCounts);
+    defer allocator.free(buckets);
+    for (0..passes) |_| {
+        @memset(digitCounts[0..], 0);
+        buckets[0] = 0; // unnecessary to set the other bucket values.
+        for (0..base) |j| { // set everything to 0.
+            digitCounts[j] = 0;
+        }
+        for (0..buf.len) |j| { // get digit counts.
+            const digit: usize = (buf[j] >> @truncate(place)) & (base - 1);
+            digitCounts[digit] += 1;
+        }
+        for (1..base) |j| { // figure out bucket positions.
+            buckets[j] = buckets[j-1] + digitCounts[j-1];
+        }
+        for (0..buf.len) |j| { // copy buckets to temp.
+            const digit: usize = (buf[j] >> @truncate(place)) & (base - 1);
+            temp[buckets[digit]] = buf[j];
+            buckets[digit] += 1;
+        }
+        @memcpy(buf[0..], temp[0..]);
+        place += bit_length; // increment the decimal place.
     }
 }
 
