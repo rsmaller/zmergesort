@@ -245,7 +245,8 @@ pub fn merge_sort_loop(allocator: anytype, buf: anytype) !void {
         while (min < n_inclusive) : (min += length * 2) {
             const mid = @min(min + length - 1, n_non_inclusive);
             const max = @min(min + length * 2 - 1, n_non_inclusive);
-            try merge(buf, tempbuf, min, mid, max);
+            if (mid < max and generic_comparator(buf[mid], buf[mid+1], .GE))
+                try merge(buf, tempbuf, min, mid, max); // If already sorted do not call merge.
         }
     }
 }
@@ -504,40 +505,42 @@ pub fn counting_sort(allocator: anytype, buf: anytype) !void {
 
 
 pub fn radix_sort(allocator: anytype, buf: anytype) !void {
-    const bit_length: comptime_int = 16;
+    const bit_length: comptime_int = 12;
     const base: comptime_int = 1 << bit_length;
     if (buf.len == 0) return;
     const T = @TypeOf(buf[0]);
     const max_float = @as(f32, @floatFromInt(max_in_arr(buf)));
     const passes = @as(usize, @intFromFloat(std.math.ceil(std.math.log(f32, base, max_float + 1.0))));
     var place: usize = 0;
-    var temp = try allocator.alloc(T, buf.len);
+    const temp = try allocator.alloc(T, buf.len);
     defer allocator.free(temp);
-    var digitCounts = try allocator.alloc(T, base);
-    var buckets = try allocator.alloc(T, base);
+    var digitCounts = try allocator.alloc(usize, base);
+    var buckets = try allocator.alloc(usize, base);
     defer allocator.free(digitCounts);
     defer allocator.free(buckets);
+    var swap_source = buf;
+    var swap_dest = temp;
     for (0..passes) |_| {
         @memset(digitCounts[0..], 0);
         buckets[0] = 0; // unnecessary to set the other bucket values.
-        for (0..base) |j| { // set everything to 0.
-            digitCounts[j] = 0;
-        }
-        for (0..buf.len) |j| { // get digit counts.
-            const digit: usize = (buf[j] >> @truncate(place)) & (base - 1);
+        for (0..swap_source.len) |j| { // get digit counts.
+            const digit: usize = (swap_source[j] >> @truncate(place)) & (base - 1);
             digitCounts[digit] += 1;
         }
         for (1..base) |j| { // figure out bucket positions.
             buckets[j] = buckets[j-1] + digitCounts[j-1];
         }
-        for (0..buf.len) |j| { // copy buckets to temp.
-            const digit: usize = (buf[j] >> @truncate(place)) & (base - 1);
-            temp[buckets[digit]] = buf[j];
+        for (0..swap_source.len) |j| { // copy buckets to temp.
+            const digit: usize = (swap_source[j] >> @truncate(place)) & (base - 1);
+            swap_dest[buckets[digit]] = swap_source[j];
             buckets[digit] += 1;
         }
-        @memcpy(buf[0..], temp[0..]);
+        const swap_temp = swap_source;
+        swap_source = swap_dest;
+        swap_dest = swap_temp;
         place += bit_length; // increment the decimal place.
     }
+    if (swap_source.ptr != buf.ptr) @memcpy(buf[0..], swap_source[0..]);
 }
 
 pub fn print_arr(outstream: anytype, arr: anytype) !void {

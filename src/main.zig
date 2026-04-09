@@ -30,23 +30,23 @@ pub fn main() !void {
     defer allocator.free(results.buf);
 
     const data_range_min: BufElementType = 0;
-    const data_range_max: BufElementType = 10000000;
+    const data_range_max: BufElementType = 1000000000;
 
     try stdout.print("Testing arrays of size {} with a data range of {}.\n\n", .{n, data_range_max});
 
-    try results.add(try sort.test_sorter("Counting Sort", allocator, sort.counting_sort, stdout, random_buf, sort.randomize, data_range_min, data_range_max), allocator);
-
     try results.add(try sort.test_sorter("Radix Sort", allocator, sort.radix_sort, stdout, random_buf, sort.randomize, data_range_min, data_range_max), allocator);
+
+    try results.add(try sort.test_sorter("Merge Sort Loop", allocator, sort.merge_sort_loop, stdout, random_buf, sort.randomize, data_range_min, data_range_max), allocator);
 
     try results.add(try sort.test_sorter("Merge Sort Recursive", allocator, sort.merge_sort_recursive, stdout, random_buf, sort.randomize, data_range_min, data_range_max), allocator);
 
     try results.add(try sort.test_sorter("Merge Sort Stack", allocator, sort.merge_sort_stack, stdout, random_buf, sort.randomize, data_range_min, data_range_max), allocator);
 
-    try results.add(try sort.test_sorter("Merge Sort Loop", allocator, sort.merge_sort_loop, stdout, random_buf, sort.randomize, data_range_min, data_range_max), allocator);
-
     try results.add(try sort.test_sorter("Quick Sort Recursive", allocator, sort.quick_sort_recursive, stdout, random_buf, sort.randomize, data_range_min, data_range_max), allocator);
 
     try results.add(try sort.test_sorter("Quick Sort Stack", allocator, sort.quick_sort_stack, stdout, random_buf, sort.randomize, data_range_min, data_range_max), allocator);
+
+    if (data_range_max < 50000000) try results.add(try sort.test_sorter("Counting Sort", allocator, sort.counting_sort, stdout, random_buf, sort.randomize, data_range_min, data_range_max), allocator);
 
     if (n <= 64000) {
         try results.add(try sort.test_sorter("Insertion Sort", allocator, sort.insertion_sort, stdout, random_buf, sort.randomize, data_range_min, data_range_max), allocator);
