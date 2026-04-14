@@ -161,14 +161,14 @@ pub inline fn shuffle(buf: anytype) void {
 pub inline fn reversed_identity(buf: anytype) void {
     if (buf.len == 0) return;
     const T = @TypeOf(buf[0]);
-    const max = std.math.maxInt(T);
-    if (buf.len > max) {
+    const hi = std.math.maxInt(T);
+    if (buf.len > hi) {
         for (0..buf.len) |i| {
-            if (max < i + 1) {
+            if (hi < i + 1) {
                 buf[i] = 0;
                 continue;
             }
-            buf[i] = @as(T, @intCast(max - i - 1));
+            buf[i] = @as(T, @intCast(hi - i - 1));
         }
     } else {
         for (0..buf.len) |i| {
@@ -177,10 +177,10 @@ pub inline fn reversed_identity(buf: anytype) void {
     }
 }
 
-pub inline fn randomize(buf: anytype, min: anytype, max: anytype) void {
+pub inline fn randomize(buf: anytype, lo: anytype, hi: anytype) void {
     if (buf.len == 0) return;
     for (0..buf.len) |i| {
-        buf[i] = std.crypto.random.intRangeAtMost(@TypeOf(buf[i]), min, max);
+        buf[i] = std.crypto.random.intRangeAtMost(@TypeOf(buf[i]), lo, hi);
     }
 }
 
@@ -225,12 +225,12 @@ pub fn merge_sort_recursive(allocator: anytype, buf: anytype) !void {
     try merge_sort_recursive_internal(buf, tempbuf, 0, buf.len - 1); // Recurse in another function to permit pre-allocation.
 }
 
-fn merge_sort_recursive_internal(buf: anytype, tempbuf: anytype, min: usize, max: usize) !void {
-    if (min >= max) return;
-    const mid = (min + max) / 2;
-    try merge_sort_recursive_internal(buf, tempbuf, min, mid);
-    try merge_sort_recursive_internal(buf, tempbuf, mid + 1, max);
-    try merge(buf, tempbuf, min, mid, max);
+fn merge_sort_recursive_internal(buf: anytype, tempbuf: anytype, lo: usize, hi: usize) !void {
+    if (lo >= hi) return;
+    const mid = (lo + hi) / 2;
+    try merge_sort_recursive_internal(buf, tempbuf, lo, mid);
+    try merge_sort_recursive_internal(buf, tempbuf, mid + 1, hi);
+    try merge(buf, tempbuf, lo, mid, hi);
 }
 
 pub fn merge_sort_loop(allocator: anytype, buf: anytype) !void {
@@ -241,29 +241,29 @@ pub fn merge_sort_loop(allocator: anytype, buf: anytype) !void {
     const n_inclusive = tempbuf.len;
     const n_non_inclusive = n_inclusive - 1;
     while (length < n_inclusive) : (length *= 2) {
-        var min: usize = 0;
-        while (min < n_inclusive) : (min += length * 2) {
-            const mid = @min(min + length - 1, n_non_inclusive);
-            const max = @min(min + length * 2 - 1, n_non_inclusive);
-            if (mid < max and generic_comparator(buf[mid], buf[mid+1], .GE))
-                try merge(buf, tempbuf, min, mid, max); // If already sorted do not call merge.
+        var lo: usize = 0;
+        while (lo < n_inclusive) : (lo += length * 2) {
+            const mid = @min(lo + length - 1, n_non_inclusive);
+            const hi = @min(lo + length * 2 - 1, n_non_inclusive);
+            if (mid < hi and generic_comparator(buf[mid], buf[mid+1], .GE))
+                try merge(buf, tempbuf, lo, mid, hi); // If already sorted do not call merge.
         }
     }
 }
 
-inline fn merge(buf: anytype, tempbuf: anytype, min: usize, mid: usize, max: usize) !void {
-    var left = tempbuf.ptr + min;
-    const left_len = mid - min + 1;
+inline fn merge(buf: anytype, tempbuf: anytype, lo: usize, mid: usize, hi: usize) !void {
+    var left = tempbuf.ptr + lo;
+    const left_len = mid - lo + 1;
     if (left_len <= 16) { // Insertion sort fallback for small partitions.
-        try insertion_sort(null, buf[min .. max + 1]);
+        try insertion_sort(null, buf[lo .. hi + 1]);
         return;
     }
-    @memcpy(left, buf[min .. mid + 1]); // Only use the left side.
+    @memcpy(left, buf[lo .. mid + 1]); // Only use the left side.
     var i: usize = 0;
     var j: usize = mid + 1;
     var buf_ptr = buf.ptr;
-    var buf_index: usize = min;
-    while (i < left_len and j <= max) : (buf_index += 1) { // Standard merging loop.
+    var buf_index: usize = lo;
+    while (i < left_len and j <= hi) : (buf_index += 1) { // Standard merging loop.
         if (generic_comparator(left[i], buf[j], .LE)) {
             buf_ptr[buf_index] = left[i];
             i += 1;
@@ -333,16 +333,16 @@ pub inline fn bubble_sort(allocator: anytype, buf: anytype) !void {
     }
 }
 
-pub inline fn quick_sort_partition_lomuto(buf: anytype, min: usize, max: usize) usize {
-    const key = buf[max]; // Assume pivot is at the end; swap pivot into correct place after.
-    var i: usize = min;
-    for (min..max) |j| {
+pub inline fn quick_sort_partition_lomuto(buf: anytype, lo: usize, hi: usize) usize {
+    const key = buf[hi]; // Assume pivot is at the end; swap pivot into correct place after.
+    var i: usize = lo;
+    for (lo..hi) |j| {
         if (generic_comparator(buf[j], key, .LT)) {
             std.mem.swap(@TypeOf(buf[0]), &buf[i], &buf[j]); // Push everything to the back.
             i += 1;
         }
     }
-    std.mem.swap(@TypeOf(buf[0]), &buf[i], &buf[max]); // Swap pivot into new correct location.
+    std.mem.swap(@TypeOf(buf[0]), &buf[i], &buf[hi]); // Swap pivot into new correct location.
     return i;
 }
 
@@ -361,14 +361,14 @@ pub inline fn int_median(buf: anytype, a: anytype, b: anytype, c: anytype) @Type
     }
 }
 
-pub inline fn quick_sort_partition_hoare(buf: anytype, min: usize, max: usize) usize {
-    var i: usize = min;
-    var j: usize = max;
-    const mid = (min + max) / 2;
-    const best_median = int_median(buf, min, mid, max);
+pub inline fn quick_sort_partition_hoare(buf: anytype, lo: usize, hi: usize) usize {
+    var i: usize = lo;
+    var j: usize = hi;
+    const mid = (lo + hi) / 2;
+    const best_median = int_median(buf, lo, mid, hi);
     const pivot = buf[best_median];
     while (true) {
-        while (i < max and generic_comparator(buf[i], pivot, .LT)) {
+        while (i < hi and generic_comparator(buf[i], pivot, .LT)) {
             i += 1;
         }
         while (generic_comparator(buf[j], pivot, .GT)) {
@@ -384,19 +384,53 @@ pub inline fn quick_sort_partition_hoare(buf: anytype, min: usize, max: usize) u
     return j;
 }
 
+pub fn quick_sort_recursive_threeway(allocator: anytype, buf: anytype) !void {
+    if (buf.len == 0) return;
+    try quick_sort_recursive_threeway_internal(allocator, buf, 0, buf.len - 1);
+}
+
 pub fn quick_sort_recursive(allocator: anytype, buf: anytype) !void {
     if (buf.len == 0) return;
     try quick_sort_recursive_internal(allocator, buf, 0, buf.len - 1);
 }
 
-fn quick_sort_recursive_internal(allocator: anytype, buf: anytype, min: usize, max: usize) !void {
-    if (max - min <= 16) {
-        try insertion_sort(allocator, buf[min .. max + 1]);
+fn quick_sort_recursive_threeway_internal(allocator: anytype, buf: anytype, lo: usize, hi: usize) !void {
+    if (hi - lo <= 16) {
+        try insertion_sort(allocator, buf[lo .. hi + 1]);
         return;
     }
-    var min_side = min;
-    while (min_side < max) {
-        const new_pivot = quick_sort_partition_hoare(buf, min_side, max);
+    var lt: usize = lo;
+    var gt: usize = hi;
+    var i: usize = lo + 1;
+    const v = buf[lo];
+    while (i <= gt) {
+        if (generic_comparator(buf[i], v, .LT)) {
+            std.mem.swap(@TypeOf(buf[0]), &buf[lt], &buf[i]);
+            i += 1;
+            lt += 1;
+        } else if (generic_comparator(buf[i], v, .GT)) {
+            std.mem.swap(@TypeOf(buf[0]), &buf[i], &buf[gt]);
+            gt -= 1;
+        } else {
+            i += 1;
+        }
+    }
+    if (lt > 0 and lo < lt - 1) {
+        try quick_sort_recursive_threeway_internal(allocator, buf, lo, lt - 1);
+    }
+    if (gt < std.math.maxInt(usize) and gt + 1 < hi) {
+        try quick_sort_recursive_threeway_internal(allocator, buf, gt + 1, hi);
+    }
+}
+
+fn quick_sort_recursive_internal(allocator: anytype, buf: anytype, lo: usize, hi: usize) !void {
+    if (hi - lo <= 16) {
+        try insertion_sort(allocator, buf[lo .. hi + 1]);
+        return;
+    }
+    var min_side = lo;
+    while (min_side < hi) {
+        const new_pivot = quick_sort_partition_hoare(buf, min_side, hi);
         try quick_sort_recursive_internal(allocator, buf, min_side, new_pivot);
         min_side = new_pivot + 1;
     }
@@ -470,13 +504,13 @@ fn expect_any_int(comptime T: type) void {
 fn expect_unsigned_int(comptime T: type) void {
     switch (@typeInfo(T)) { // Enforce unsigned data types for simplicity.
         .int => |int_data| {
-        switch (int_data.signedness) {
-            .signed => {
-                @compileError("Unsigned integer type expected");
-            },
-            else => {},
-        }
-    },
+            switch (int_data.signedness) {
+                .signed => {
+                    @compileError("Unsigned integer type expected");
+                },
+                else => {},
+            }
+        },
         else => {
             @compileError("Unsigned integer type expected");
         },
@@ -487,8 +521,8 @@ pub fn counting_sort(allocator: anytype, buf: anytype) !void {
     if (buf.len == 0) return;
     const T = @TypeOf(buf[0]);
     expect_unsigned_int(T);
-    const max = max_in_arr(buf);
-    const sort_buf_size = try std.math.add(usize, @as(usize, @intCast(max)), 1);
+    const hi = max_in_arr(buf);
+    const sort_buf_size = try std.math.add(usize, @as(usize, @intCast(hi)), 1);
     var sort_buf: []usize = try allocator.alloc(usize, sort_buf_size);
     defer allocator.free(sort_buf);
     @memset(sort_buf[0..], 0);
@@ -555,10 +589,10 @@ pub fn print_arr(outstream: anytype, arr: anytype) !void {
     try outstream.print("{d}}}", .{arr[arr.len - 1]});
 }
 
-pub fn test_sorter(sorter_name: []const u8, allocator: anytype, sorter: anytype, outstream: anytype, buf: anytype, arrsetter: anytype, min: anytype, max: anytype) !SortResult {
-    // _ = min;
-    // _ = max;
-    arrsetter(buf, min, max);
+pub fn test_sorter(sorter_name: []const u8, allocator: anytype, sorter: anytype, outstream: anytype, buf: anytype, arrsetter: anytype, lo: anytype, hi: anytype) !SortResult {
+    // _ = lo;
+    // _ = hi;
+    arrsetter(buf, lo, hi);
     try outstream.print("Testing {s}: ", .{sorter_name});
     try print_arr(outstream, buf);
     try outstream.print("\nResult: ", .{});

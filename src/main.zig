@@ -46,6 +46,8 @@ pub fn main() !void {
 
     try results.add(try sort.test_sorter("Quick Sort Stack", allocator, sort.quick_sort_stack, stdout, random_buf, sort.randomize, data_range_min, data_range_max), allocator);
 
+    try results.add(try sort.test_sorter("Quick Sort Threeway Recursive", allocator, sort.quick_sort_recursive_threeway, stdout, random_buf, sort.randomize, data_range_min, data_range_max), allocator);
+
     if (data_range_max < 50000000) try results.add(try sort.test_sorter("Counting Sort", allocator, sort.counting_sort, stdout, random_buf, sort.randomize, data_range_min, data_range_max), allocator);
 
     if (n <= 64000) {
