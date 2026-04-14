@@ -394,11 +394,12 @@ pub fn quick_sort_recursive(allocator: anytype, buf: anytype) !void {
     try quick_sort_recursive_internal(allocator, buf, 0, buf.len - 1);
 }
 
-fn quick_sort_recursive_threeway_internal(allocator: anytype, buf: anytype, lo: usize, hi: usize) !void {
-    if (hi - lo <= 16) {
-        try insertion_sort(allocator, buf[lo .. hi + 1]);
-        return;
-    }
+const ThreeWayBoundary = struct {
+    lt: usize,
+    gt: usize,
+};
+
+inline fn quick_sort_recursive_threeway_partition(buf: anytype, lo: usize, hi: usize) ThreeWayBoundary {
     var lt: usize = lo;
     var gt: usize = hi;
     var i: usize = lo + 1;
@@ -415,11 +416,20 @@ fn quick_sort_recursive_threeway_internal(allocator: anytype, buf: anytype, lo: 
             i += 1;
         }
     }
-    if (lt > 0 and lo < lt - 1) {
-        try quick_sort_recursive_threeway_internal(allocator, buf, lo, lt - 1);
+    return .{.lt = lt, .gt = gt};
+}
+
+fn quick_sort_recursive_threeway_internal(allocator: anytype, buf: anytype, lo: usize, hi: usize) !void {
+    if (hi <= lo) return;
+    if (hi - lo <= 16) {
+        try insertion_sort(allocator, buf[lo .. hi + 1]);
+        return;
     }
-    if (gt < std.math.maxInt(usize) and gt + 1 < hi) {
-        try quick_sort_recursive_threeway_internal(allocator, buf, gt + 1, hi);
+    var min_side = lo;
+    while (min_side < hi) {
+        const boundary = quick_sort_recursive_threeway_partition(buf, min_side, hi);
+        try quick_sort_recursive_threeway_internal(allocator, buf, min_side, boundary.lt - 1);
+        min_side = boundary.gt + 1;
     }
 }
 
