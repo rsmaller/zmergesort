@@ -361,29 +361,6 @@ pub inline fn int_median(buf: anytype, a: anytype, b: anytype, c: anytype) @Type
     }
 }
 
-pub inline fn quick_sort_partition_hoare(buf: anytype, lo: usize, hi: usize) usize {
-    var i: usize = lo;
-    var j: usize = hi;
-    const mid = (lo + hi) / 2;
-    const best_median = int_median(buf, lo, mid, hi);
-    const pivot = buf[best_median];
-    while (true) {
-        while (i < hi and generic_comparator(buf[i], pivot, .LT)) {
-            i += 1;
-        }
-        while (generic_comparator(buf[j], pivot, .GT)) {
-            j -= 1;
-        }
-        if (generic_comparator(i, j, .GE)) {
-            break;
-        }
-        std.mem.swap(@TypeOf(buf[0]), &buf[i], &buf[j]);
-        i += 1;
-        j -= 1;
-    }
-    return j;
-}
-
 pub fn quick_sort_recursive_threeway(allocator: anytype, buf: anytype) !void {
     if (buf.len == 0) return;
     try quick_sort_recursive_threeway_internal(allocator, buf, 0, buf.len - 1);
@@ -425,12 +402,47 @@ fn quick_sort_recursive_threeway_internal(allocator: anytype, buf: anytype, lo: 
         try insertion_sort(allocator, buf[lo .. hi + 1]);
         return;
     }
-    var min_side = lo;
-    while (min_side < hi) {
-        const boundary = quick_sort_recursive_threeway_partition(buf, min_side, hi);
-        try quick_sort_recursive_threeway_internal(allocator, buf, min_side, boundary.lt - 1);
-        min_side = boundary.gt + 1;
+    var lo_side = lo;
+    var hi_side = hi;
+    while (lo_side < hi_side) {
+        const boundary = quick_sort_recursive_threeway_partition(buf, lo_side, hi_side);
+        if (boundary.lt - lo_side > hi_side - boundary.gt) {
+            try quick_sort_recursive_threeway_internal(allocator, buf, boundary.gt + 1, hi_side);
+            if (boundary.lt > 0) { // Overflow is not possible; only underflow guards are needed.
+                hi_side = boundary.lt - 1;
+            } else {
+                break;
+            }
+        } else {
+            if (boundary.lt > 0) {
+                try quick_sort_recursive_threeway_internal(allocator, buf, lo_side, boundary.lt - 1);
+            }
+            lo_side = boundary.gt + 1;
+        }
     }
+}
+
+pub inline fn quick_sort_partition_hoare(buf: anytype, lo: usize, hi: usize) usize {
+    var i: usize = lo;
+    var j: usize = hi;
+    const mid = (lo + hi) / 2;
+    const best_median = int_median(buf, lo, mid, hi);
+    const pivot = buf[best_median];
+    while (true) {
+        while (i < hi and generic_comparator(buf[i], pivot, .LT)) {
+            i += 1;
+        }
+        while (generic_comparator(buf[j], pivot, .GT)) {
+            j -= 1;
+        }
+        if (generic_comparator(i, j, .GE)) {
+            break;
+        }
+        std.mem.swap(@TypeOf(buf[0]), &buf[i], &buf[j]);
+        i += 1;
+        j -= 1;
+    }
+    return j;
 }
 
 fn quick_sort_recursive_internal(allocator: anytype, buf: anytype, lo: usize, hi: usize) !void {
@@ -438,11 +450,11 @@ fn quick_sort_recursive_internal(allocator: anytype, buf: anytype, lo: usize, hi
         try insertion_sort(allocator, buf[lo .. hi + 1]);
         return;
     }
-    var min_side = lo;
-    while (min_side < hi) {
-        const new_pivot = quick_sort_partition_hoare(buf, min_side, hi);
-        try quick_sort_recursive_internal(allocator, buf, min_side, new_pivot);
-        min_side = new_pivot + 1;
+    var lo_side = lo;
+    while (lo_side < hi) {
+        const new_pivot = quick_sort_partition_hoare(buf, lo_side, hi);
+        try quick_sort_recursive_internal(allocator, buf, lo_side, new_pivot);
+        lo_side = new_pivot + 1;
     }
 }
 
